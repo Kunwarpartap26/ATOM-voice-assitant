@@ -1,0 +1,132 @@
+package org.vosk.demo.accessibility;
+
+import android.accessibilityservice.AccessibilityService;
+import android.accessibilityservice.AccessibilityServiceInfo;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
+
+public class VoiceAccessibilityService extends AccessibilityService {
+    
+    private static final String TAG = "TETRA_SERVICE";
+    private static VoiceAccessibilityService instance;
+    private Handler keepAliveHandler;
+    private boolean isHealthy = true;
+    
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        instance = this;
+        Log.d(TAG, "[TETRA] Service CREATED");
+        startSelfHealing();
+    }
+    
+    @Override
+    protected void onServiceConnected() {
+        super.onServiceConnected();
+        
+        // Configure service dynamically for Android 14+ stability
+        AccessibilityServiceInfo info = getServiceInfo();
+        if (info != null) {
+            info.flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+                    | AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
+                    | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                    | AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
+            
+            setServiceInfo(info);
+        }
+        
+        isHealthy = true;
+        Log.d(TAG, "[TETRA] Service CONNECTED - Ready for commands");
+    }
+    
+    @Override
+    public void onAccessibilityEvent(AccessibilityEvent event) {
+        // Monitor app switches
+        if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            String packageName = event.getPackageName() != null ? event.getPackageName().toString() : "";
+            if (!packageName.isEmpty() && !packageName.equals("org.vosk.demo")) {
+                Log.d(TAG, "[TETRA] CONTEXT_SWITCH -> " + packageName);
+            }
+        }
+        
+        // Reset health on any event (proves service is responsive)
+        isHealthy = true;
+    }
+    
+    @Override
+    public void onInterrupt() {
+        Log.w(TAG, "[TETRA] Service INTERRUPTED");
+        isHealthy = false;
+    }
+    
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (keepAliveHandler != null) {
+            keepAliveHandler.removeCallbacksAndMessages(null);
+        }
+        instance = null;
+        Log.d(TAG, "[TETRA] Service DESTROYED");
+    }
+    
+    // Self-healing mechanism (Android 14 fix)
+    private void startSelfHealing() {
+        keepAliveHandler = new Handler(Looper.getMainLooper());
+        keepAliveHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!isHealthy) {
+                    Log.w(TAG, "[TETRA] Self-heal triggered - reinitializing");
+                    AccessibilityServiceInfo info = getServiceInfo();
+                    if (info != null) {
+                        setServiceInfo(info);
+                    }
+                }
+                isHealthy = false;
+                keepAliveHandler.postDelayed(this, 5000);
+            }
+        }, 5000);
+    }
+    
+    // PUBLIC API
+    public static VoiceAccessibilityService getInstance() {
+        return instance;
+    }
+    
+    public boolean isActive() {
+        return instance != null && isHealthy;
+    }
+    
+    public AccessibilityNodeInfo getRootNode() {
+        return getRootInActiveWindow();
+    }
+    
+    public String getCurrentApp() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root != null) {
+            return root.getPackageName() != null ? root.getPackageName().toString() : "";
+        }
+        return "";
+    }
+    
+    // TEST STATUS
+    public String testStatus() {
+        StringBuilder status = new StringBuilder();
+        status.append("[TETRA] Service Instance: ").append(instance != null ? "ACTIVE" : "NULL").append("\n");
+        status.append("[TETRA] Health Status: ").append(isHealthy ? "HEALTHY" : "DEGRADED").append("\n");
+        status.append("[TETRA] Root Node Access: ");
+        
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root != null) {
+            status.append("OK (Package: ").append(root.getPackageName()).append(")");
+            root.recycle();
+        } else {
+            status.append("FAILED - No window access");
+        }
+        
+        return status.toString();
+    }
+}

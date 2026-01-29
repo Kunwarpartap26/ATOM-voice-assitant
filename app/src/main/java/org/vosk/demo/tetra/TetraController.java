@@ -1,0 +1,202 @@
+package org.vosk.demo.tetra;
+
+import android.accessibilityservice.AccessibilityService;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
+import android.view.accessibility.AccessibilityNodeInfo;
+
+import org.vosk.demo.ParsedIntent;
+import org.vosk.demo.agents.InstagramAgent;
+
+public class TetraController {
+    private static final String TAG = "TETRA";
+    private static final long POST_SCROLL_DELAY = 200;
+    private static final long POST_LAUNCH_DELAY = 2000;
+    
+    private static TetraController instance;
+    
+    private final AccessibilityService service;
+    private final ActionRouter router;
+    private final Handler handler;
+    
+    public TetraController(AccessibilityService service) {
+        this.service = service;
+        this.router = new ActionRouter(service);
+        this.handler = new Handler(Looper.getMainLooper());
+    }
+    
+    public static void setInstance(TetraController controller) {
+        instance = controller;
+        Log.d(TAG, "Singleton instance set");
+    }
+    
+    public static TetraController getInstance() {
+        if (instance == null) {
+            Log.e(TAG, "getInstance() called but instance is null!");
+        }
+        return instance;
+    }
+    
+    public static boolean isInitialized() {
+        return instance != null;
+    }
+    
+    // CHANGED: Now returns TetraResult
+    public TetraResult execute(ParsedIntent intent) {
+        if (intent == null) {
+            Log.e(TAG, "Received null intent");
+            return TetraResult.failure("Null intent received");
+        }
+        
+        String action = intent.getAction();
+        String parameter = intent.getParameter();
+        String target = intent.getTarget();
+        float confidence = intent.getConfidence();
+        
+        Log.d(TAG, "Executing action=" + action + ", param=" + parameter + 
+              ", target=" + target + ", confidence=" + confidence);
+        
+        if (action == null) {
+            Log.e(TAG, "Action is null");
+            return TetraResult.failure("Action is null");
+        }
+        
+        switch (action) {
+            case "open_app":
+                return executeOpenApp(target);
+            case "scroll":
+                return executeScroll(parameter);
+            case "go_back":
+            case "back":
+                return executeBack();
+            case "go_home":
+            case "home":
+                return executeHome();
+            case "like_post":
+                return executeLikePost();
+            default:
+                Log.w(TAG, "Unknown action: " + action);
+                return TetraResult.failure("Unknown action: " + action);
+        }
+    }
+    
+    private TetraResult executeOpenApp(String appName) {
+        if (appName == null || appName.isEmpty()) {
+            Log.e(TAG, "No app name provided");
+            return TetraResult.failure("No app name provided");
+        }
+        String packageName = AppPackageMapper.getPackage(appName);
+        if (packageName != null) {
+            router.launchApp(packageName);
+            return TetraResult.success("Opening " + appName);
+        } else {
+            Log.e(TAG, "Unknown app: " + appName);
+            return TetraResult.failure("Unknown app: " + appName);
+        }
+    }
+    
+    private TetraResult executeScroll(String direction) {
+        router.scrollScreen(direction);
+        return TetraResult.success("Scrolling " + (direction != null ? direction : "down"));
+    }
+    
+    private TetraResult executeBack() {
+        router.performGlobalBack();
+        return TetraResult.success("Going back");
+    }
+    
+    private TetraResult executeHome() {
+        router.performGlobalHome();
+        return TetraResult.success("Going home");
+    }
+    
+    private TetraResult executeLikePost() {
+        Log.d(TAG, "Executing like post command");
+        
+        if (!isInstagramInForeground()) {
+            Log.d(TAG, "Instagram not in foreground, launching...");
+            String instagramPkg = AppPackageMapper.getPackage("instagram");
+            if (instagramPkg != null) {
+                router.launchApp(instagramPkg);
+                handler.postDelayed(this::findAndClickLikeButton, POST_LAUNCH_DELAY);
+                return TetraResult.success("Opening Instagram and will like post...");
+            } else {
+                Log.e(TAG, "Instagram package not found");
+                return TetraResult.failure("Instagram not found");
+            }
+        } else {
+            findAndClickLikeButton();
+            return TetraResult.success("Liking post...");
+        }
+    }
+    
+    private boolean isInstagramInForeground() {
+        AccessibilityNodeInfo root = null;
+        try {
+            root = service.getRootInActiveWindow();
+            if (root == null) return false;
+            
+            CharSequence pkg = root.getPackageName();
+            boolean isInsta = pkg != null && pkg.toString().toLowerCase().contains("instagram");
+            return isInsta;
+        } catch (Exception e) {
+            Log.e(TAG, "Error checking foreground app: " + e.getMessage());
+            return false;
+        } finally {
+            if (root != null) {
+                root.recycle();
+            }
+        }
+    }
+    
+    private void findAndClickLikeButton() {
+        Log.d(TAG, "Finding and clicking like button");
+        
+        router.scrollScreen("up");
+        
+        handler.postDelayed(() -> {
+            try {
+                InstagramAgent.ScreenSkeleton skeleton = 
+                    InstagramAgent.captureScreenSkeleton(service);
+                
+                if (!skeleton.isInstagramFocused) {
+                    Log.e(TAG, "Cannot click like: " + skeleton.errorMessage);
+                    return;
+                }
+                
+                if (skeleton.likeButtons.isEmpty()) {
+                    Log.e(TAG, "No like buttons found on screen");
+                    return;
+                }
+                
+                InstagramAgent.LikeButtonInfo button = skeleton.likeButtons.get(0);
+                Log.d(TAG, "Clicking like button at center (" + button.x + ", " + button.y + ")");
+                
+                router.performClick(button.x, button.y);
+                
+            } catch (Exception e) {
+                Log.e(TAG, "Error in findAndClickLikeButton: " + e.getMessage());
+            }
+        }, POST_SCROLL_DELAY);
+    }
+    
+    public boolean executeInstagramCommand(String command) {
+        if (command == null) return false;
+        
+        switch (command.toLowerCase()) {
+            case "like":
+            case "like_post":
+                executeLikePost();
+                return true;
+            case "scroll_down":
+                router.scrollScreen("down");
+                return true;
+            case "scroll_up":
+                router.scrollScreen("up");
+                return true;
+            default:
+                return false;
+        }
+    }
+}

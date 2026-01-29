@@ -1,0 +1,92 @@
+package org.vosk.demo;
+
+import android.util.Log;
+
+public class IntentParser {
+    
+    private static final String TAG = "INTENT_PARSER";
+    
+    public static ParsedIntent parse(String voiceInput) {
+        if (voiceInput == null || voiceInput.isEmpty()) {
+            return new ParsedIntent("unknown", null, null, null);
+        }
+        
+        String original = voiceInput;
+        String lower = voiceInput.toLowerCase().trim();
+        
+        // STEP 1: Extract target app (if mentioned)
+        String targetApp = extractTargetApp(lower);
+        
+        // STEP 2: Remove app mentions from the command for cleaner parsing
+        if (targetApp != null) {
+            lower = lower.replaceAll(" in " + targetApp, "");
+            lower = lower.replaceAll(" on " + targetApp, "");
+            lower = lower.trim();
+        }
+        
+        Log.d(TAG, "[PARSE] Original: '" + original + "'");
+        Log.d(TAG, "[PARSE] Cleaned: '" + lower + "'");
+        Log.d(TAG, "[PARSE] Target App: " + targetApp);
+        
+        // STEP 3: Parse the action
+        
+        // SCROLL commands
+        if (lower.contains("scroll down") || lower.contains("swipe down")) {
+            Log.d(TAG, "[PARSE] → scroll down" + (targetApp != null ? " in " + targetApp : ""));
+            return new ParsedIntent("scroll", "down", null, targetApp);
+        }
+        
+        if (lower.contains("scroll up") || lower.contains("swipe up")) {
+            Log.d(TAG, "[PARSE] → scroll up" + (targetApp != null ? " in " + targetApp : ""));
+            return new ParsedIntent("scroll", "up", null, targetApp);
+        }
+        
+        // LIKE commands
+        if (lower.contains("like") && (lower.contains("post") || lower.contains("this"))) {
+            Log.d(TAG, "[PARSE] → like_post" + (targetApp != null ? " in " + targetApp : ""));
+            return new ParsedIntent("like_post", null, null, targetApp);
+        }
+        
+        // APP OPEN commands
+        if (lower.startsWith("open ")) {
+            String appName = lower.replace("open ", "").trim();
+            Log.d(TAG, "[PARSE] → open_app: " + appName);
+            return new ParsedIntent("open_app", null, appName, null);
+        }
+        
+        // NAVIGATION commands
+        if (lower.equals("go back") || lower.equals("back")) {
+            Log.d(TAG, "[PARSE] → go_back");
+            return new ParsedIntent("go_back", null, null, null);
+        }
+        
+        if (lower.equals("go home") || lower.equals("home")) {
+            Log.d(TAG, "[PARSE] → go_home");
+            return new ParsedIntent("go_home", null, null, null);
+        }
+        
+        Log.w(TAG, "[PARSE] → unknown command");
+        return new ParsedIntent("unknown", null, null, null);
+    }
+    
+    /**
+     * Extract app name from command (e.g., "in instagram", "on chrome")
+     */
+    private static String extractTargetApp(String command) {
+        // Check for "in [app]" or "on [app]"
+        if (command.contains(" in instagram") || command.contains(" on instagram")) {
+            return "instagram";
+        }
+        if (command.contains(" in chrome") || command.contains(" on chrome")) {
+            return "chrome";
+        }
+        if (command.contains(" in whatsapp") || command.contains(" on whatsapp")) {
+            return "whatsapp";
+        }
+        if (command.contains(" in youtube") || command.contains(" on youtube")) {
+            return "youtube";
+        }
+        
+        return null;
+    }
+}

@@ -7,3 +7,4 @@ Check the [releases](https://github.com/alphacep/vosk-android-demo/releases) for
 ## Documentation
 
 For documentation and instructions please visit the [Vosk Website](https://alphacephei.com/vosk/android).
+And this project is currently in development 
